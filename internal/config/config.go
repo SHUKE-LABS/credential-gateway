@@ -72,8 +72,8 @@ func checkPermissions(path string) error {
 		return fmt.Errorf("stat config %s: %w", path, err)
 	}
 	mode := info.Mode().Perm()
-	if mode&0o044 != 0 {
-		return fmt.Errorf("config file %s has unsafe permissions %04o (must not be group- or world-readable)", path, mode)
+	if mode&0o077 != 0 {
+		return fmt.Errorf("config file %s has unsafe permissions %04o (must be 0600 or stricter)", path, mode)
 	}
 	return nil
 }
