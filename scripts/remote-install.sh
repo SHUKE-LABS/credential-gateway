@@ -63,6 +63,8 @@ if [[ ! -e "${CONFIG_FILE}" ]]; then
 #     password: "REPLACE_ME"
 #     database: mydb   # optional; falls through to client's requested database if omitted
 
+# Oracle proxy — EXPERIMENTAL: does not authenticate against real Oracle servers
+# (auth token is SHA1(password+salt), not real Oracle O5LGP). Not for production.
 # oracle:
 #   - listen: "127.0.0.1:1522"
 #     upstream: "real-oracle-host:1521"

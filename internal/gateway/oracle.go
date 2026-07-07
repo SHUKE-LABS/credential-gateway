@@ -142,8 +142,11 @@ func (p *oracleProxy) handle(client net.Conn) {
 // TTC O3LOG / O3AUTH exchange. The proxy injects config credentials into the
 // upstream auth and sends the client a dummy session-key + auth OK.
 //
-// V1 scope: unencrypted TNS path only; auth token = SHA1(password+salt).
-// Real Oracle 11g/12c additionally requires AES-CBC session-key derivation.
+// EXPERIMENTAL: this does not authenticate against real Oracle servers. The
+// auth token is SHA1(password+salt) (see oracleComputeAuth), which is not the
+// O5LGP proof any real Oracle 10g+ listener expects — real password auth derives
+// an AES-CBC session key from password+salt and sends a different proof. A real
+// listener rejects this O3AUTH. Only the unencrypted TNS/TTC wire flow is real.
 func (p *oracleProxy) doAuth(client, upstream net.Conn) error {
 	// NS round: upstream → client, then client → upstream.
 	pt, nsBody, err := tnsRead(upstream)
@@ -360,6 +363,10 @@ func tnsIsAuthOK(body []byte) bool {
 }
 
 // oracleComputeAuth derives the auth token as SHA1(password + salt).
+//
+// EXPERIMENTAL placeholder — this is NOT real Oracle O5LGP and no real Oracle
+// listener accepts it. Real password auth derives an AES-CBC session key from
+// password+salt and sends a different proof.
 func oracleComputeAuth(password string, salt []byte) []byte {
 	h := sha1.New()
 	h.Write([]byte(password))
