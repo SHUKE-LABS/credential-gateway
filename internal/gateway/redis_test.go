@@ -9,6 +9,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"credential-gateway/internal/config"
 )
@@ -243,6 +244,33 @@ func TestRedisProxy_InterceptsClientInlineAUTH(t *testing.T) {
 	// Client password must not reach upstream
 	if upstream.authCount() != 1 {
 		t.Errorf("upstream received %d AUTH commands, want 1 (proxy only)", upstream.authCount())
+	}
+}
+
+func TestRedisProxy_WrongPasswordRejected(t *testing.T) {
+	upstream := newFakeRedis(t, "correct")
+	p := startRedisProxy(t, upstream.addr, "wrong")
+
+	conn, err := net.Dial("tcp", p.listener.Addr().String())
+	if err != nil {
+		t.Fatalf("dial proxy: %v", err)
+	}
+	defer conn.Close()
+
+	// Proxy should reject the upstream AUTH and close the connection before it
+	// ever enters the pipe phase — the client's PING must not yield +PONG or
+	// leak upstream's -NOAUTH.
+	conn.Write([]byte("*1\r\n$4\r\nPING\r\n")) //nolint:errcheck
+
+	conn.SetReadDeadline(time.Now().Add(2 * time.Second)) //nolint:errcheck
+	br := bufio.NewReader(conn)
+	if line, err := br.ReadString('\n'); err == nil {
+		t.Errorf("expected closed connection, got reply %q", strings.TrimRight(line, "\r\n"))
+	}
+
+	// The proxy still sent exactly one AUTH (its configured, wrong password).
+	if upstream.authCount() != 1 {
+		t.Errorf("upstream received %d AUTH commands, want 1", upstream.authCount())
 	}
 }
 

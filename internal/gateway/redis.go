@@ -56,10 +56,19 @@ func (p *redisProxy) handle(client net.Conn) {
 			p.log.Error("redis proxy: AUTH write failed", "err", err)
 			return
 		}
-		// Drain the +OK response before forwarding client traffic.
+		// Read and verify the AUTH reply. Redis answers +OK on success and a
+		// simple error (e.g. -ERR invalid password) on failure. Anything that is
+		// not +OK means upstream rejected our configured credential — surface it
+		// here instead of piping and leaking -NOAUTH to the client.
 		buf := make([]byte, 32)
-		if _, err := upstream.Read(buf); err != nil {
+		n, err := upstream.Read(buf)
+		if err != nil {
 			p.log.Error("redis proxy: AUTH read failed", "err", err)
+			return
+		}
+		if !bytes.HasPrefix(buf[:n], []byte("+OK")) {
+			reply := strings.TrimRight(string(buf[:n]), "\r\n")
+			p.log.Error("redis proxy: upstream rejected AUTH", "upstream", p.cfg.Upstream, "reply", reply)
 			return
 		}
 	}
