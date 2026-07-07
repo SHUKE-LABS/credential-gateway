@@ -166,6 +166,24 @@ go test ./...
 
 Tests cover HTTP header injection, MySQL handshake, Redis AUTH injection, PostgreSQL MD5/SCRAM-SHA-256, and the Oracle TNS/TTC wire plumbing (the Oracle proxy is experimental — the tests exercise the wire flow and username injection, not real-Oracle authentication).
 
+## Releases
+
+Every push to `main` runs `.github/workflows/release.yml`, which tags the new `HEAD`, pushes the tag, regenerates `CHANGELOG.md`, and commits the changelog back as `github-actions[bot]` with `[skip ci]` (so it does not re-trigger CI or itself). The git tag **is** the version — nothing is baked into the binary.
+
+Tagging is driven by the `HEAD` commit subject:
+
+- a `feat:` commit bumps the **minor** version and zeroes the patch (`v0.1.0` over `v0.0.1`);
+- any other conventional-commit type bumps the **patch** (`v0.0.1` from a tag-less history).
+
+The changelog buckets each commit under `### Features` / `### Fixes` / `### Refactors` / `### Performance` / `### Docs` / `### Other Changes` by its type. **Use conventional-commit prefixes** (`feat:`, `fix:`, `refactor:`, `perf:`, `docs:`, …) so the bump and bucketing classify the commit correctly. Commits with `[skip ci]` in their subject are omitted from the changelog.
+
+Run the tooling locally (it is pure git, no Go involvement):
+
+```bash
+bash scripts/generate-changelog -   # print the changelog to stdout
+bash scripts/generate-changelog     # write CHANGELOG.md in place
+```
+
 ## Project structure
 
 ```
