@@ -136,6 +136,10 @@ func TestTNSIsAuthOK(t *testing.T) {
 
 // --- unit test for auth derivation ---
 
+// TestOracleComputeAuth pins the current SHA1(password+salt) derivation. That
+// formula is a non-functional experimental placeholder — it is NOT real Oracle
+// O5LGP and no real listener accepts it. This test guards the implementation as
+// written, not interoperability with a real Oracle server.
 func TestOracleComputeAuth(t *testing.T) {
 	password := "s3cr3t"
 	salt := make([]byte, 20)
@@ -165,8 +169,9 @@ func oracleFakeUpstreamRefuse(conn net.Conn) {
 }
 
 // oracleFakeUpstream simulates a minimal Oracle server: ACCEPT, NS negotiation,
-// O3LOG/O3AUTH exchange with credential verification, auth OK, then stay open.
-func oracleFakeUpstream(conn net.Conn, user, password string) {
+// O3LOG/O3AUTH exchange, auth OK, then stay open. It verifies the proxy injects
+// the configured username, but not the auth token — see the O3AUTH read below.
+func oracleFakeUpstream(conn net.Conn, user string) {
 	defer conn.Close()
 
 	// Read CONNECT from proxy.
@@ -211,7 +216,14 @@ func oracleFakeUpstream(conn net.Conn, user, password string) {
 		return
 	}
 
-	// Read O3AUTH from proxy; extract and verify credentials.
+	// Read O3AUTH from proxy; verify the function code and the injected username.
+	//
+	// Deliberately NOT validating the auth token. The proxy derives it as
+	// SHA1(password+salt) (oracleComputeAuth), which is not real Oracle O5LGP —
+	// a real listener would reject it. Asserting it here against that same
+	// formula would only prove the proxy agrees with itself (a tautology). This
+	// test therefore covers the TNS/TTC wire plumbing — username credential
+	// injection, packet framing, auth-OK forwarding — not real-Oracle auth.
 	_, o3auth, err := tnsRead(conn)
 	if err != nil || len(o3auth) < 4 || o3auth[2] != ttcO3AUTH {
 		return
@@ -221,19 +233,9 @@ func oracleFakeUpstream(conn net.Conn, user, password string) {
 		return
 	}
 	gotUser2 := string(o3auth[4 : 4+aulen])
-	authOff := 4 + aulen
-	if authOff+1 > len(o3auth) {
-		return
-	}
-	authLen := int(o3auth[authOff])
-	if authOff+1+authLen > len(o3auth) {
-		return
-	}
-	gotAuth := o3auth[authOff+1 : authOff+1+authLen]
 
-	expectedAuth := oracleComputeAuth(password, salt)
-	if gotUser != user || gotUser2 != user || !bytes.Equal(gotAuth, expectedAuth) {
-		return // credential mismatch — client will see EOF
+	if gotUser != user || gotUser2 != user {
+		return // username not injected from config — client will see EOF
 	}
 
 	// Send auth OK.
@@ -318,7 +320,7 @@ func TestOracleProxyHappyPath(t *testing.T) {
 			if err != nil {
 				return
 			}
-			go oracleFakeUpstream(conn, user, password)
+			go oracleFakeUpstream(conn, user)
 		}
 	}()
 

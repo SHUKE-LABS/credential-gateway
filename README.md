@@ -8,7 +8,7 @@ app / agent
   ├─ MySQL      → localhost:3307 (no passwd) → real MySQL         (credentials injected at handshake)
   ├─ Redis      → localhost:6380 (no auth)   → real Redis         (AUTH command injected)
   ├─ PostgreSQL → localhost:5433 (no passwd) → real PostgreSQL    (MD5 / SCRAM-SHA-256 injected)
-  └─ Oracle     → localhost:1522 (no passwd) → real Oracle DB     (TNS/TTC auth injected)
+  └─ Oracle     → localhost:1522 (no passwd) → real Oracle DB     (TNS/TTC wire only — EXPERIMENTAL, does not authenticate to real Oracle)
 ```
 
 It solves three problems that `.env` files and secrets managers don't:
@@ -78,7 +78,9 @@ postgres:
     password: "…"
     database: mydb   # optional; falls through to client's requested database if omitted
 
-# Oracle proxy — TNS wire protocol with TTC O3LOG/O3AUTH credential injection
+# Oracle proxy — EXPERIMENTAL. Does not authenticate against real Oracle servers:
+# the auth token is SHA1(password+salt), not real Oracle O5LGP, so a real listener
+# rejects it. Only the TNS/TTC wire flow works. Not for production use.
 oracle:
   - listen: "127.0.0.1:1522"
     upstream: "real-oracle-host:1521"
@@ -148,7 +150,7 @@ Each listener implements `Start() / Stop()`. `Gateway.Start()` launches all of t
 | MySQL | Full native auth handshake; client sends no password |
 | Redis | Pre-pipes `AUTH <password>` before forwarding client commands |
 | PostgreSQL | SSLRequest negotiation (rejects SSL), MD5 password response, full SCRAM-SHA-256 (PBKDF2 + RFC 5802 proof) |
-| Oracle | TNS CONNECT/ACCEPT, NS negotiation, TTC O3LOG/O3AUTH with SHA1-derived auth token |
+| Oracle | **EXPERIMENTAL** — TNS CONNECT/ACCEPT, NS negotiation, TTC O3LOG/O3AUTH wire flow. The SHA1-derived auth token is **not** real Oracle O5LGP, so this does **not** authenticate against real Oracle servers |
 
 **Security notes:**
 
@@ -162,7 +164,7 @@ Each listener implements `Start() / Stop()`. `Gateway.Start()` launches all of t
 go test ./...
 ```
 
-Tests cover HTTP header injection, MySQL handshake, Redis AUTH injection, PostgreSQL MD5/SCRAM-SHA-256, and Oracle TNS/TTC flows.
+Tests cover HTTP header injection, MySQL handshake, Redis AUTH injection, PostgreSQL MD5/SCRAM-SHA-256, and the Oracle TNS/TTC wire plumbing (the Oracle proxy is experimental — the tests exercise the wire flow and username injection, not real-Oracle authentication).
 
 ## Project structure
 
