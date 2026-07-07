@@ -5,7 +5,7 @@
 ```
 app / agent
   ├─ HTTP       → localhost:8080/openai/…   → api.openai.com      (Authorization header injected)
-  ├─ MySQL      → localhost:3307 (no passwd) → real MySQL         (credentials injected at handshake)
+  ├─ MySQL      → localhost:3307 (no passwd) → real MySQL         (credentials injected at handshake — upstream account must use mysql_native_password)
   ├─ Redis      → localhost:6380 (no auth)   → real Redis         (AUTH command injected)
   ├─ PostgreSQL → localhost:5433 (no passwd) → real PostgreSQL    (MD5 / SCRAM-SHA-256 injected)
   └─ Oracle     → localhost:1522 (no passwd) → real Oracle DB     (TNS/TTC wire only — EXPERIMENTAL, does not authenticate to real Oracle)
@@ -147,7 +147,7 @@ Each listener implements `Start() / Stop()`. `Gateway.Start()` launches all of t
 | Proxy | What the gateway handles |
 |---|---|
 | HTTP | Header injection via `Director`; streaming and chunked transfer preserved |
-| MySQL | Full native auth handshake; client sends no password |
+| MySQL | Full native auth handshake; client sends no password. **Upstream accounts must authenticate with `mysql_native_password`** (`ALTER USER <user> IDENTIFIED WITH mysql_native_password BY '<pw>'`). Against a `caching_sha2_password` account (the MySQL 8.0+ default) the server requests an auth-switch the proxy can't satisfy; it returns a clean ERR naming the plugin rather than dropping the connection. `caching_sha2_password` is not supported. |
 | Redis | Pre-pipes `AUTH <password>` before forwarding client commands |
 | PostgreSQL | SSLRequest negotiation (rejects SSL), MD5 password response, full SCRAM-SHA-256 (PBKDF2 + RFC 5802 proof) |
 | Oracle | **EXPERIMENTAL** — TNS CONNECT/ACCEPT, NS negotiation, TTC O3LOG/O3AUTH wire flow. The SHA1-derived auth token is **not** real Oracle O5LGP, so this does **not** authenticate against real Oracle servers |

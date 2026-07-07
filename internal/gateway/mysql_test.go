@@ -4,7 +4,10 @@ import (
 	"bytes"
 	"context"
 	"crypto/sha1"
+	"encoding/binary"
+	"io"
 	"net"
+	"strings"
 	"testing"
 	"time"
 
@@ -103,7 +106,7 @@ func buildHandshakeV10(serverVersion string, nonce []byte) []byte {
 	capHigh := uint16(0x0800)
 	buf.WriteByte(byte(capHigh))
 	buf.WriteByte(byte(capHigh >> 8))
-	buf.WriteByte(21) // auth_plugin_data_len = 21
+	buf.WriteByte(21)           // auth_plugin_data_len = 21
 	buf.Write(make([]byte, 10)) // reserved
 	// auth-plugin-data part 2 (13 bytes: 12 + null)
 	buf.Write(nonce[8:20])
@@ -130,19 +133,27 @@ func TestMysqlParseNonce(t *testing.T) {
 }
 
 // fakeMySQL is a minimal MySQL server for testing: it sends a HandshakeV10,
-// reads the client's HandshakeResponse, and replies with an OK packet.
+// reads the client's HandshakeResponse, and replies with an OK packet — or,
+// when authSwitchTo is set, an AuthSwitchRequest (0xfe) for that plugin.
 type fakeMySQL struct {
-	ln   net.Listener
-	addr string
+	ln           net.Listener
+	addr         string
+	authSwitchTo string
 }
 
 func newFakeMySQL(t *testing.T) *fakeMySQL {
+	return newFakeMySQLAuthSwitch(t, "")
+}
+
+// newFakeMySQLAuthSwitch builds a fake upstream that replies to the auth attempt
+// with an AuthSwitchRequest for plugin instead of an OK packet.
+func newFakeMySQLAuthSwitch(t *testing.T, plugin string) *fakeMySQL {
 	t.Helper()
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatalf("fakeMySQL listen: %v", err)
 	}
-	fm := &fakeMySQL{ln: ln, addr: ln.Addr().String()}
+	fm := &fakeMySQL{ln: ln, addr: ln.Addr().String(), authSwitchTo: plugin}
 	go fm.serve()
 	t.Cleanup(func() { ln.Close() }) //nolint:errcheck
 	return fm
@@ -165,6 +176,16 @@ func (f *fakeMySQL) handle(conn net.Conn) {
 		return
 	}
 	if _, _, err := mysqlReadPacket(conn); err != nil {
+		return
+	}
+	if f.authSwitchTo != "" {
+		// AuthSwitchRequest: 0xfe + null-terminated plugin name + auth data.
+		var b bytes.Buffer
+		b.WriteByte(0xfe)
+		b.WriteString(f.authSwitchTo)
+		b.WriteByte(0)
+		b.Write(make([]byte, 21))            // 20-byte nonce + null (auth-plugin-data)
+		mysqlWritePacket(conn, 2, b.Bytes()) //nolint:errcheck
 		return
 	}
 	// OK packet: payload begins with 0x00 (not 0xff/0xfe), so the proxy treats
@@ -226,6 +247,95 @@ func TestMysqlProxy_ShortHandshakeResponseSurvives(t *testing.T) {
 	}
 
 	// The listener must still be alive: a fresh connection completes handshake.
+	conn2, err := net.Dial("tcp", addr)
+	if err != nil {
+		t.Fatalf("listener did not survive (dial): %v", err)
+	}
+	defer conn2.Close() //nolint:errcheck
+	if err := conn2.SetReadDeadline(time.Now().Add(2 * time.Second)); err != nil {
+		t.Fatalf("set read deadline: %v", err)
+	}
+	if _, _, err := mysqlReadPacket(conn2); err != nil {
+		t.Fatalf("listener did not survive (read handshake): %v", err)
+	}
+}
+
+// TestMysqlProxy_AuthSwitchReturnsCleanErr drives a client through the proxy to
+// a fake upstream that requests an auth-switch to caching_sha2_password. The
+// proxy must NOT relay the raw 0xfe and close; it must return a well-formed
+// MySQL ERR packet that a real client decodes cleanly. The assertions decode the
+// wire packet the way a driver does (header, seq, framing) rather than checking
+// resp[0] == 0xff.
+func TestMysqlProxy_AuthSwitchReturnsCleanErr(t *testing.T) {
+	upstream := newFakeMySQLAuthSwitch(t, "caching_sha2_password")
+	p := startMySQLProxy(t, upstream.addr)
+	addr := p.listener.Addr().String()
+
+	conn, err := net.Dial("tcp", addr)
+	if err != nil {
+		t.Fatalf("dial proxy: %v", err)
+	}
+	defer conn.Close() //nolint:errcheck
+
+	// Read the server handshake the proxy forwards from upstream (seq 0).
+	if _, _, err := mysqlReadPacket(conn); err != nil {
+		t.Fatalf("read forwarded handshake: %v", err)
+	}
+
+	// Send a minimal HandshakeResponse41 (CLIENT_PROTOCOL_41 set) at seq 1. The
+	// proxy only reads the capability flags and (absent) database out of it.
+	const clientProtocol41 = 0x00000200
+	clientResp := make([]byte, 32) // caps(4) + max pkt(4) + charset(1) + reserved(23)
+	binary.LittleEndian.PutUint32(clientResp, clientProtocol41)
+	if err := mysqlWritePacket(conn, 1, clientResp); err != nil {
+		t.Fatalf("write client handshake response: %v", err)
+	}
+
+	if err := conn.SetReadDeadline(time.Now().Add(2 * time.Second)); err != nil {
+		t.Fatalf("set read deadline: %v", err)
+	}
+
+	// Decode the 4-byte packet header directly and verify the sequence number
+	// follows the client's response (seq 1 + 1 = 2).
+	hdr := make([]byte, 4)
+	if _, err := io.ReadFull(conn, hdr); err != nil {
+		t.Fatalf("read err packet header: %v", err)
+	}
+	length := int(hdr[0]) | int(hdr[1])<<8 | int(hdr[2])<<16
+	if seq := hdr[3]; seq != 2 {
+		t.Errorf("err packet seq: got %d, want 2 (client response seq 1 + 1)", seq)
+	}
+
+	payload := make([]byte, length)
+	if _, err := io.ReadFull(conn, payload); err != nil {
+		t.Fatalf("read err packet payload: %v", err)
+	}
+
+	// 0xff + 2-byte code + '#' + 5-byte SQLSTATE + message.
+	if len(payload) < 9 {
+		t.Fatalf("err packet too short: %d bytes (%x)", len(payload), payload)
+	}
+	if payload[0] != 0xff {
+		t.Errorf("err header: got 0x%02x, want 0xff", payload[0])
+	}
+	if code := uint16(payload[1]) | uint16(payload[2])<<8; code != 1251 {
+		t.Errorf("err code: got %d, want 1251", code)
+	}
+	if payload[3] != '#' {
+		t.Errorf("sqlstate marker: got 0x%02x, want '#'", payload[3])
+	}
+	if sqlState := string(payload[4:9]); sqlState != "08004" {
+		t.Errorf("sqlstate: got %q, want 08004", sqlState)
+	}
+	msg := string(payload[9:])
+	if !strings.Contains(msg, "caching_sha2_password") {
+		t.Errorf("err message does not name the requested plugin: %q", msg)
+	}
+	if !strings.Contains(msg, "mysql_native_password") {
+		t.Errorf("err message does not name the required plugin: %q", msg)
+	}
+
+	// The listener must survive: a fresh connection still gets the handshake.
 	conn2, err := net.Dial("tcp", addr)
 	if err != nil {
 		t.Fatalf("listener did not survive (dial): %v", err)
