@@ -102,6 +102,30 @@ credential-gateway -config ~/my-config.yaml    # explicit path
 
 Logs are written to stderr in JSON format (`log/slog`). Shutdown is graceful: send `SIGINT` or `SIGTERM` and all listeners drain within 10 seconds.
 
+## Deployment (always-on systemd host)
+
+To run the gateway as a managed service on a remote host, use the deploy script. It builds a static `linux/amd64` binary locally, ships it over ssh, and installs it via systemd — the target needs no Go toolchain, only `systemd` and `ssh`+`sudo`.
+
+```bash
+scripts/deploy.sh <ssh-host>        # e.g. scripts/deploy.sh e6420
+CG_DEPLOY_HOST=e6420 scripts/deploy.sh
+```
+
+- **Idempotent** — re-run to upgrade the binary. An existing `/etc/credential-gateway/config.yaml` is never overwritten.
+- **Staleness gate** — refuses to deploy when local `HEAD` is behind its upstream (so you don't silently ship a stale build). Override with `CG_DEPLOY_ALLOW_STALE=1` for rollbacks or deliberate old-commit deploys.
+
+On a **fresh** install the script seeds `/etc/credential-gateway/config.yaml` (0600 root:root) as an all-commented template and enables the unit for boot **without starting it** — with no listener configured the gateway would refuse to start anyway. Fill it in, then start:
+
+```bash
+ssh <host>
+sudo $EDITOR /etc/credential-gateway/config.yaml   # uncomment a section, add real credentials
+sudo systemctl start credential-gateway
+systemctl status credential-gateway                 # active/running
+journalctl -u credential-gateway -f
+```
+
+The service runs as **root** (not `DynamicUser`) because it reads the `0600 root:root` config directly, and passes `-config` explicitly rather than relying on the `$HOME` search path. It keeps the standard systemd hardening otherwise (`NoNewPrivileges`, `ProtectSystem=strict`, `ProtectHome`, `PrivateTmp`, restricted address families, etc.); see `deploy/credential-gateway.service`.
+
 ## Architecture
 
 ```
