@@ -72,7 +72,9 @@ func (p *mysqlProxy) handle(client net.Conn) {
 	}
 
 	// --- Step 3: read client HandshakeResponse (discard credentials) ---
-	_, clientResp, err := mysqlReadPacket(client)
+	// Capture the client's sequence number: any packet we synthesize back to the
+	// client (e.g. an auth-switch error) must follow it as clientSeq+1.
+	clientSeq, clientResp, err := mysqlReadPacket(client)
 	if err != nil {
 		p.log.Error("mysql proxy: read client response", "err", err)
 		return
@@ -101,12 +103,33 @@ func (p *mysqlProxy) handle(client net.Conn) {
 		return
 	}
 
-	// --- Step 6: read upstream OK/ERR, forward to client ---
+	// --- Step 6: read the upstream auth result and inspect it before forwarding ---
 	seq, result, err := mysqlReadPacket(upstream)
 	if err != nil {
 		p.log.Error("mysql proxy: read upstream auth result", "err", err)
 		return
 	}
+
+	// Auth-switch request (0xfe): the upstream wants a plugin other than the
+	// mysql_native_password we sent (a stock MySQL 8.0+ account defaults to
+	// caching_sha2_password). We can't satisfy it. Relaying the raw 0xfe would
+	// leave the client computing a switch response into a socket we then close
+	// (broken pipe / "packets out of order"). Instead, tell the client cleanly
+	// with a MySQL ERR packet naming the plugin, at its own next sequence number.
+	if len(result) > 0 && result[0] == 0xfe {
+		plugin := mysqlParseAuthSwitchPlugin(result)
+		p.log.Error("mysql proxy: upstream requested unsupported auth plugin",
+			"plugin", plugin, "upstream", p.cfg.Upstream)
+		msg := fmt.Sprintf("credential-gateway: upstream requested unsupported auth plugin %q; "+
+			"only mysql_native_password is supported "+
+			"(run: ALTER USER <user> IDENTIFIED WITH mysql_native_password BY '<password>')", plugin)
+		if err := mysqlWritePacket(client, clientSeq+1, mysqlBuildErrPacket(clientCaps, msg)); err != nil {
+			p.log.Error("mysql proxy: write auth-switch error to client", "err", err)
+		}
+		return
+	}
+
+	// Not an auth-switch: forward the upstream result (OK or ERR) at its own seq.
 	if err := mysqlWritePacket(client, seq, result); err != nil {
 		p.log.Error("mysql proxy: write auth result to client", "err", err)
 		return
@@ -115,13 +138,6 @@ func (p *mysqlProxy) handle(client net.Conn) {
 	// ERR packet starts with 0xff.
 	if len(result) > 0 && result[0] == 0xff {
 		p.log.Error("mysql proxy: upstream rejected auth", "upstream", p.cfg.Upstream)
-		return
-	}
-
-	// Handle auth-switch-request: upstream may ask the client to re-authenticate
-	// using a different plugin. We don't forward that to the client — just close.
-	if len(result) > 0 && result[0] == 0xfe {
-		p.log.Error("mysql proxy: upstream requested unsupported auth switch")
 		return
 	}
 
@@ -205,8 +221,8 @@ func mysqlParseNonce(payload []byte) ([]byte, error) {
 	if capHigh&0x0008 != 0 {
 		authDataLen = int(payload[pos])
 	}
-	pos++      // auth_plugin_data_len
-	pos += 10  // reserved
+	pos++     // auth_plugin_data_len
+	pos += 10 // reserved
 
 	part2Len := authDataLen - 8
 	if part2Len < 13 {
@@ -231,7 +247,7 @@ func mysqlClearSSL(payload []byte) {
 	for pos < len(payload) && payload[pos] != 0 {
 		pos++
 	}
-	pos++ // skip null terminator
+	pos++            // skip null terminator
 	pos += 4 + 8 + 1 // connection ID + auth part 1 + filler
 
 	// capability_flags_1: 2 bytes starting at pos
@@ -301,10 +317,10 @@ func mysqlBuildResponse(user, password string, nonce []byte, database string) []
 	authResp := mysqlScramble(nonce, password)
 
 	var buf bytes.Buffer
-	binary.Write(&buf, binary.LittleEndian, caps)           //nolint:errcheck
+	binary.Write(&buf, binary.LittleEndian, caps)            //nolint:errcheck
 	binary.Write(&buf, binary.LittleEndian, uint32(1<<24-1)) //nolint:errcheck // max packet size
-	buf.WriteByte(45)                                         // utf8mb4
-	buf.Write(make([]byte, 23))                               // reserved
+	buf.WriteByte(45)                                        // utf8mb4
+	buf.Write(make([]byte, 23))                              // reserved
 	buf.WriteString(user)
 	buf.WriteByte(0)
 	buf.WriteByte(byte(len(authResp)))
@@ -316,6 +332,44 @@ func mysqlBuildResponse(user, password string, nonce []byte, database string) []
 	buf.WriteString("mysql_native_password")
 	buf.WriteByte(0)
 
+	return buf.Bytes()
+}
+
+// mysqlParseAuthSwitchPlugin extracts the plugin name from an AuthSwitchRequest
+// payload: 0xfe followed by a null-terminated plugin name (then auth data).
+// Returns "" for a malformed or bare payload (e.g. the pre-4.1 old-password
+// switch, which carries no name).
+func mysqlParseAuthSwitchPlugin(payload []byte) string {
+	if len(payload) < 2 || payload[0] != 0xfe {
+		return ""
+	}
+	rest := payload[1:]
+	if i := bytes.IndexByte(rest, 0); i >= 0 {
+		return string(rest[:i])
+	}
+	return string(rest)
+}
+
+// mysqlBuildErrPacket builds a MySQL ERR packet carrying message. When the
+// client negotiated CLIENT_PROTOCOL_41 it includes the '#'-prefixed 5-byte
+// SQLSTATE, matching what a real MySQL server emits so standard drivers surface
+// the message instead of a "packets out of order" decode error.
+func mysqlBuildErrPacket(clientCaps uint32, message string) []byte {
+	const clientProtocol41 = 0x00000200
+	// ER_NOT_SUPPORTED_AUTH_MODE (1251) / SQLSTATE 08004 — the standard error a
+	// server returns when the client can't satisfy the requested auth protocol.
+	const sqlState = "08004"
+	errCode := uint16(1251)
+
+	var buf bytes.Buffer
+	buf.WriteByte(0xff)
+	buf.WriteByte(byte(errCode))
+	buf.WriteByte(byte(errCode >> 8))
+	if clientCaps&clientProtocol41 != 0 {
+		buf.WriteByte('#')
+		buf.WriteString(sqlState)
+	}
+	buf.WriteString(message)
 	return buf.Bytes()
 }
 

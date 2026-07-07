@@ -9,6 +9,11 @@ http:
     headers:
       Authorization: "Bearer sk-REPLACE_ME"
 
+# MySQL proxy — the upstream account MUST authenticate with mysql_native_password.
+# A stock MySQL 8.0+ account defaults to caching_sha2_password, which this proxy
+# does not support; connecting to one returns a clean auth error naming the plugin.
+# Convert the account with:
+#   ALTER USER '<user>'@'%' IDENTIFIED WITH mysql_native_password BY '<password>';
 mysql:
   - listen: "127.0.0.1:3307"
     upstream: "real-db-host:3306"
