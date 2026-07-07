@@ -58,7 +58,7 @@ func (p *oracleProxy) accept() {
 		if err != nil {
 			return
 		}
-		go p.handle(conn)
+		go safeHandle(conn, p.log, "oracle", p.handle)
 	}
 }
 
