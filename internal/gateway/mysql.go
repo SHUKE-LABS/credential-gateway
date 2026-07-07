@@ -35,7 +35,7 @@ func (p *mysqlProxy) accept() {
 		if err != nil {
 			return
 		}
-		go p.handle(conn)
+		go safeHandle(conn, p.log, "mysql", p.handle)
 	}
 }
 
@@ -75,6 +75,13 @@ func (p *mysqlProxy) handle(client net.Conn) {
 	_, clientResp, err := mysqlReadPacket(client)
 	if err != nil {
 		p.log.Error("mysql proxy: read client response", "err", err)
+		return
+	}
+
+	// The payload length is fully client-controlled (3-byte packet length field),
+	// so guard before slicing the capability flags out of it.
+	if len(clientResp) < 4 {
+		p.log.Error("mysql proxy: client handshake response too short", "len", len(clientResp))
 		return
 	}
 
