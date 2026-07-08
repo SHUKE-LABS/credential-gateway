@@ -32,7 +32,8 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git diff --quiet CHANGELOG.md || \
+          git add CHANGELOG.md
+          git diff --cached --quiet CHANGELOG.md || \
             git commit -m "docs: regenerate changelog [skip ci]" CHANGELOG.md
       - name: Push changelog
         run: git push origin HEAD:main
