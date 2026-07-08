@@ -1,0 +1,15 @@
+# Changelog
+
+_Generated from release tags with `bash scripts/generate-changelog`._
+
+## v0.1.1 … v0.1.0 (2026-07-08)
+
+### Features
+- feat: release mechanism — auto-tag + conventional-commit CHANGELOG on push to main (#29)
+
+### Fixes
+- fix(release): commit CHANGELOG.md on first release (#34)
+
+### Other Changes
+- chore(release): re-trigger Release after dropped push event
+
