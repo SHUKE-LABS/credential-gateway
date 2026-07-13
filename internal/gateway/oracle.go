@@ -64,6 +64,7 @@ func (p *oracleProxy) accept() {
 
 func (p *oracleProxy) handle(client net.Conn) {
 	defer client.Close()
+	cl := acceptConn(p.log, "oracle", client)
 
 	// Step 1: read client CONNECT (type 1).
 	pktType, _, err := tnsRead(client)
@@ -135,7 +136,8 @@ func (p *oracleProxy) handle(client net.Conn) {
 	p.log.Info("oracle proxy: client connected", "upstream", p.cfg.Upstream)
 
 	// Step 7: bidirectional pipe.
-	pipe(client, upstream)
+	toUpstream, toClient := pipe(client, upstream, client)
+	cl.close(toUpstream, toClient)
 }
 
 // doAuth handles one round of NS (Native Services) negotiation followed by the
