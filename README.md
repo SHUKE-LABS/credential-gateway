@@ -124,6 +124,7 @@ CG_DEPLOY_HOST=e6420 scripts/deploy.sh
 
 - **Idempotent** — re-run to upgrade the binary. An existing `/etc/credential-gateway/config.yaml` is never overwritten.
 - **Staleness gate** — refuses to deploy when local `HEAD` is behind its upstream (so you don't silently ship a stale build). Override with `CG_DEPLOY_ALLOW_STALE=1` for rollbacks or deliberate old-commit deploys.
+- **Validation-gated restarts** — the unit's `ExecStartPre` runs `credential-gateway -validate` before every start/restart, so a bad config (deploy *or* a manual `sudo systemctl restart` after a hand-edit) fails with a clean `journalctl` error and never binds a port. On an **upgrade** deploy, a config that can't start now fails the deploy with a non-zero exit — the `systemctl status` diagnostic is still printed so you see exactly why. (A never-configured host is the same case: an all-commented config can't start, so re-deploying one without first filling it in fails the deploy.)
 
 On a **fresh** install the script seeds `/etc/credential-gateway/config.yaml` (0600 root:root) as an all-commented template and enables the unit for boot **without starting it** — with no listener configured the gateway would refuse to start anyway. Fill it in, then start:
 
