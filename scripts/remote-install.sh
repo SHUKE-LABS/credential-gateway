@@ -6,8 +6,13 @@
 set -euo pipefail
 
 BIN=credential-gateway
-SRC_BIN="${1:?usage: remote-install.sh <binary> <unit>}"
-SRC_UNIT="${2:?usage: remote-install.sh <binary> <unit>}"
+ADMIN_BIN=credential-gateway-admin
+ADMIN_USER=cg-admin
+USAGE="usage: remote-install.sh <binary> <unit> <admin-binary> <admin-unit>"
+SRC_BIN="${1:?${USAGE}}"
+SRC_UNIT="${2:?${USAGE}}"
+SRC_ADMIN_BIN="${3:?${USAGE}}"
+SRC_ADMIN_UNIT="${4:?${USAGE}}"
 CONFIG_DIR=/etc/credential-gateway
 CONFIG_FILE="${CONFIG_DIR}/config.yaml"
 
@@ -15,6 +20,8 @@ CONFIG_FILE="${CONFIG_DIR}/config.yaml"
 # a half-written binary; the service is (re)started after.
 install -m 0755 "${SRC_BIN}" "/usr/local/bin/${BIN}"
 install -m 0644 "${SRC_UNIT}" "/etc/systemd/system/${BIN}.service"
+install -m 0755 "${SRC_ADMIN_BIN}" "/usr/local/bin/${ADMIN_BIN}"
+install -m 0644 "${SRC_ADMIN_UNIT}" "/etc/systemd/system/${ADMIN_BIN}.service"
 install -d -m 0750 "${CONFIG_DIR}"
 
 seeded=0
@@ -79,7 +86,44 @@ else
 	echo ">> kept existing ${CONFIG_FILE}"
 fi
 
+# --- admin UI: dedicated non-root user + ACL-scoped file access -------------
+# The admin UI runs as cg-admin (stable UID, not DynamicUser: the ACL grant
+# below needs it) and reaches exactly config.yaml via a POSIX ACL, leaving the
+# file 0600 root:root so the gateway's permission check needs no change.
+if ! id -u "${ADMIN_USER}" >/dev/null 2>&1; then
+	useradd --system --no-create-home --shell /usr/sbin/nologin "${ADMIN_USER}"
+	echo ">> created system user ${ADMIN_USER}"
+else
+	echo ">> system user ${ADMIN_USER} already exists"
+fi
+
+# Directory grant is execute-only (traversal to a known filename), not read (no
+# listing); file grant is read+write. setfacl re-applied every run — idempotent.
+setfacl -m "u:${ADMIN_USER}:x"  "${CONFIG_DIR}"
+setfacl -m "u:${ADMIN_USER}:rw" "${CONFIG_FILE}"
+
+# Verify the grants actually applied. They silently don't on a noacl mount, a
+# filesystem without ACL support, or a missing setfacl — leaving cg-admin unable
+# to write. Fail loudly rather than tolerate that, consistent with the rest of
+# this script.
+if ! getfacl -pc "${CONFIG_DIR}"  2>/dev/null | grep -qx "user:${ADMIN_USER}:--x" ||
+   ! getfacl -pc "${CONFIG_FILE}" 2>/dev/null | grep -qx "user:${ADMIN_USER}:rw-"; then
+	echo "ERROR: setfacl grants for ${ADMIN_USER} did not apply on ${CONFIG_DIR}." >&2
+	echo "       ACLs may be unsupported here (noacl mount option, filesystem" >&2
+	echo "       without ACL support, or setfacl missing). The admin UI cannot" >&2
+	echo "       write config.yaml without them — aborting." >&2
+	exit 1
+fi
+echo ">> verified ${ADMIN_USER} ACL grants on ${CONFIG_FILE}"
+
 systemctl daemon-reload
+
+# The admin UI serves regardless of whether config.yaml is valid (it exists by
+# now — seeded above or pre-existing), so start it on both fresh and upgrade
+# installs; the operator edits config through it. Tolerate a start failure
+# rather than aborting the deploy; status is shown below.
+systemctl enable --now "${ADMIN_BIN}.service" >/dev/null 2>&1 || true
+systemctl --no-pager --full --lines=0 status "${ADMIN_BIN}.service" || true
 
 if [[ "${seeded}" == "1" ]]; then
 	# Fresh seed can't start yet (no listener by design). Enable for boot only;

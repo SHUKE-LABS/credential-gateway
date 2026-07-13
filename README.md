@@ -128,6 +128,30 @@ journalctl -u credential-gateway -f
 
 The service runs as **root** (not `DynamicUser`) because it reads the `0600 root:root` config directly, and passes `-config` explicitly rather than relying on the `$HOME` search path. It keeps the standard systemd hardening otherwise (`NoNewPrivileges`, `ProtectSystem=strict`, `ProtectHome`, `PrivateTmp`, restricted address families, etc.); see `deploy/credential-gateway.service`.
 
+## Admin UI (editing config over the web)
+
+On a systemd host, `credential-gateway-admin` is a second, separate service that serves a minimal web page for viewing and editing `/etc/credential-gateway/config.yaml` — an alternative to `ssh` + `$EDITOR`. `scripts/deploy.sh` installs and starts it alongside the gateway.
+
+It is deliberately narrow, because anything that can write that file can read and write every proxied credential:
+
+- **Separate, unprivileged process.** Runs as a dedicated non-root user `cg-admin` (not the gateway's root), reaching only `config.yaml` via a POSIX ACL. The file stays `0600 root:root`; the gateway is unchanged.
+- **Loopback only.** Binds `127.0.0.1:8099` and nothing else — reach it through an SSH tunnel:
+
+  ```bash
+  ssh -L 8099:127.0.0.1:8099 <host>     # e.g. ssh -L 8099:127.0.0.1:8099 e6420
+  # then open http://127.0.0.1:8099 in your browser
+  ```
+
+- **Restart required — no hot-reload.** Saving validates and rewrites the file, but **does not** affect the running gateway. Apply changes yourself:
+
+  ```bash
+  sudo systemctl restart credential-gateway
+  ```
+
+  The UI states this on every page. There is no button that restarts, stops, or reloads the gateway — restart stays in your own SSH+sudo session.
+
+- **Validated writes.** A submitted config is run through the same validation the gateway performs at startup; an invalid config is rejected with the gateway's own error text and the live file is left untouched.
+
 ## Architecture
 
 ```
@@ -188,12 +212,18 @@ bash scripts/generate-changelog     # write CHANGELOG.md in place
 
 ```
 credential-gateway/
-├── main.go                        # entry point, signal handling, graceful shutdown
+├── main.go                        # gateway entry point, signal handling, graceful shutdown
 ├── config.example.yaml            # annotated example config (no real credentials)
 ├── go.mod / go.sum
+├── cmd/
+│   └── credential-gateway-admin/
+│       └── main.go                # admin UI entry point (loopback config editor)
 └── internal/
+    ├── admin/
+    │   ├── server.go             # admin UI HTTP server (validate + in-place write)
+    │   └── server_test.go
     ├── config/
-    │   ├── config.go              # YAML loading, permission check
+    │   ├── config.go              # YAML loading, Parse (shared validation), permission check
     │   └── config_test.go
     └── gateway/
         ├── gateway.go             # orchestrator, Start/Stop lifecycle
