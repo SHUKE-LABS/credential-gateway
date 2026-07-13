@@ -43,6 +43,15 @@ chmod 0600 ~/.config/credential-gateway/config.yaml
 
 The gateway refuses to start if the config file is group- or world-readable. This is enforced at startup, not just advisory.
 
+To check a config without starting the service, use `-validate`:
+
+```bash
+credential-gateway -validate                     # validate default config
+credential-gateway -validate -config ~/my.yaml   # validate an explicit path
+```
+
+It exits `0` if the config is well-formed, correctly-permissioned, and safe to parse, or `1` with the error on stderr. It binds no listener port, so it is safe to run in CI, a pre-commit hook, or while the service is already running. Note this is static validation only — it does not dial upstreams or verify that credentials authenticate.
+
 ## Config
 
 Config is YAML. All five proxy types are optional — include only the services you need. Multiple entries per section are supported.

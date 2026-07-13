@@ -15,6 +15,7 @@ import (
 
 func main() {
 	configPath := flag.String("config", "", "path to config file (default: search standard locations)")
+	validate := flag.Bool("validate", false, "validate config and exit without starting listeners")
 	flag.Parse()
 
 	log := slog.New(slog.NewJSONHandler(os.Stderr, nil))
@@ -23,6 +24,11 @@ func main() {
 	if err != nil {
 		log.Error("failed to load config", "err", err)
 		os.Exit(1)
+	}
+
+	if *validate {
+		log.Info("config is valid")
+		os.Exit(0)
 	}
 
 	gw := gateway.New(cfg, log)
