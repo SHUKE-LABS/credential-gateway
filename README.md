@@ -52,6 +52,14 @@ credential-gateway -validate -config ~/my.yaml   # validate an explicit path
 
 It exits `0` if the config is well-formed, correctly-permissioned, and safe to parse, or `1` with the error on stderr. It binds no listener port, so it is safe to run in CI, a pre-commit hook, or while the service is already running. Note this is static validation only — it does not dial upstreams or verify that credentials authenticate.
 
+To print the build version and exit, use `-version`:
+
+```bash
+credential-gateway -version
+```
+
+It prints the version to stdout and exits `0` without loading config or binding a port. A binary built by `scripts/deploy.sh` reports its `git describe` version; a plain `go build` reports `dev`. The version is also logged once at startup.
+
 ## Config
 
 Config is YAML. All five proxy types are optional — include only the services you need. Multiple entries per section are supported.
@@ -202,7 +210,7 @@ Tests cover HTTP header injection, MySQL handshake, Redis AUTH injection, Postgr
 
 ## Releases
 
-Every push to `main` runs `.github/workflows/release.yml`, which tags the new `HEAD`, pushes the tag, regenerates `CHANGELOG.md`, and commits the changelog back as `github-actions[bot]` with `[skip ci]` (so it does not re-trigger CI or itself). The git tag **is** the version — nothing is baked into the binary.
+Every push to `main` runs `.github/workflows/release.yml`, which tags the new `HEAD`, pushes the tag, regenerates `CHANGELOG.md`, and commits the changelog back as `github-actions[bot]` with `[skip ci]` (so it does not re-trigger CI or itself). The git tag **is** the version: `scripts/deploy.sh` bakes the `git describe --tags --always --dirty` version into the binary via `-ldflags -X main.version=…`, which `credential-gateway -version` then reports. A plain `go build` (including CI) leaves the version as `dev`.
 
 Tagging is driven by the `HEAD` commit subject:
 
