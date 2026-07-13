@@ -60,6 +60,18 @@ credential-gateway -version
 
 It prints the version to stdout and exits `0` without loading config or binding a port. A binary built by `scripts/deploy.sh` reports its `git describe` version; a plain `go build` reports `dev`. The version is also logged once at startup.
 
+### Logging
+
+Logs are JSON on stderr at `info` level by default. Raise or lower the verbosity with the `-log-level` flag or the `CG_LOG_LEVEL` environment variable:
+
+```bash
+credential-gateway -log-level debug            # verbose, for field diagnosis
+CG_LOG_LEVEL=warn credential-gateway           # quiet, for production
+credential-gateway -log-level info -log-source # add source file:line to each line
+```
+
+Accepted levels are `debug`, `info`, `warn`, and `error` (case-insensitive). The `-log-level` flag overrides `CG_LOG_LEVEL` when both are set. An invalid value exits `1` with a message naming the accepted values. The optional `-log-source` flag adds the emitting `source` file:line to every log line.
+
 ## Config
 
 Config is YAML. All five proxy types are optional — include only the services you need. Multiple entries per section are supported.

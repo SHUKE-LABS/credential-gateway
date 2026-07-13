@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -18,10 +19,35 @@ import (
 // A plain `go build` leaves it as "dev".
 var version = "dev"
 
+// resolveLogLevel resolves the slog level from the -log-level flag and the
+// CG_LOG_LEVEL env var. The flag wins when set; otherwise the env var is used;
+// otherwise the level defaults to info. Accepted values (case-insensitive):
+// debug, info, warn, error. Any other non-empty value is an error.
+func resolveLogLevel(flagVal, envVal string) (slog.Level, error) {
+	val := flagVal
+	if val == "" {
+		val = envVal
+	}
+	switch strings.ToLower(val) {
+	case "", "info":
+		return slog.LevelInfo, nil
+	case "debug":
+		return slog.LevelDebug, nil
+	case "warn":
+		return slog.LevelWarn, nil
+	case "error":
+		return slog.LevelError, nil
+	default:
+		return 0, fmt.Errorf("invalid log level %q: accepted values are debug, info, warn, error", val)
+	}
+}
+
 func main() {
 	configPath := flag.String("config", "", "path to config file (default: search standard locations)")
 	validate := flag.Bool("validate", false, "validate config and exit without starting listeners")
 	showVersion := flag.Bool("version", false, "print the build version and exit")
+	logLevel := flag.String("log-level", "", "log verbosity: debug, info, warn, error (default info; overrides CG_LOG_LEVEL)")
+	logSource := flag.Bool("log-source", false, "include source file:line in log lines")
 	flag.Parse()
 
 	if *showVersion {
@@ -29,7 +55,13 @@ func main() {
 		os.Exit(0)
 	}
 
-	log := slog.New(slog.NewJSONHandler(os.Stderr, nil))
+	level, err := resolveLogLevel(*logLevel, os.Getenv("CG_LOG_LEVEL"))
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
+
+	log := slog.New(slog.NewJSONHandler(os.Stderr, &slog.HandlerOptions{Level: level, AddSource: *logSource}))
 	log.Info("starting", "version", version)
 
 	cfg, err := config.Load(*configPath)
