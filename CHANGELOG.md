@@ -2,6 +2,11 @@
 
 _Generated from release tags with `bash scripts/generate-changelog`._
 
+## v0.2.0 (2026-07-14)
+
+### Features
+- feat: web admin UI for viewing/editing listener config (#23) (#40)
+
 ## v0.1.1 … v0.1.0 (2026-07-08)
 
 ### Features
