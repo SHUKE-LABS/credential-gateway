@@ -51,7 +51,7 @@ trap 'rm -rf "${tmp}"' EXIT
 
 echo ">> building credential-gateway ${VERSION} (linux/amd64, static)"
 CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build \
-	-trimpath -ldflags "-s -w" \
+	-trimpath -ldflags "-s -w -X main.version=${VERSION}" \
 	-o "${tmp}/credential-gateway" .
 
 echo ">> building credential-gateway-admin ${VERSION} (linux/amd64, static)"

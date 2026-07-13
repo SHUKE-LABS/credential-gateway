@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"flag"
+	"fmt"
 	"log/slog"
 	"os"
 	"os/signal"
@@ -13,12 +14,23 @@ import (
 	"credential-gateway/internal/gateway"
 )
 
+// version is the build version, baked in by deploy.sh via -ldflags -X.
+// A plain `go build` leaves it as "dev".
+var version = "dev"
+
 func main() {
 	configPath := flag.String("config", "", "path to config file (default: search standard locations)")
 	validate := flag.Bool("validate", false, "validate config and exit without starting listeners")
+	showVersion := flag.Bool("version", false, "print the build version and exit")
 	flag.Parse()
 
+	if *showVersion {
+		fmt.Println(version)
+		os.Exit(0)
+	}
+
 	log := slog.New(slog.NewJSONHandler(os.Stderr, nil))
+	log.Info("starting", "version", version)
 
 	cfg, err := config.Load(*configPath)
 	if err != nil {
