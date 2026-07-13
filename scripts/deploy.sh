@@ -54,10 +54,17 @@ CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build \
 	-trimpath -ldflags "-s -w" \
 	-o "${tmp}/credential-gateway" .
 
+echo ">> building credential-gateway-admin ${VERSION} (linux/amd64, static)"
+CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build \
+	-trimpath -ldflags "-s -w" \
+	-o "${tmp}/credential-gateway-admin" ./cmd/credential-gateway-admin
+
 echo ">> uploading to ${HOST}"
 scp -q \
 	"${tmp}/credential-gateway" \
+	"${tmp}/credential-gateway-admin" \
 	deploy/credential-gateway.service \
+	deploy/credential-gateway-admin.service \
 	scripts/remote-install.sh \
 	"${HOST}:/tmp/"
 
@@ -66,8 +73,11 @@ ssh "${HOST}" "
 	set -e
 	chmod +x /tmp/remote-install.sh
 	sudo /tmp/remote-install.sh \
-		/tmp/credential-gateway /tmp/credential-gateway.service
-	rm -f /tmp/credential-gateway /tmp/credential-gateway.service /tmp/remote-install.sh
+		/tmp/credential-gateway /tmp/credential-gateway.service \
+		/tmp/credential-gateway-admin /tmp/credential-gateway-admin.service
+	rm -f /tmp/credential-gateway /tmp/credential-gateway.service \
+		/tmp/credential-gateway-admin /tmp/credential-gateway-admin.service \
+		/tmp/remote-install.sh
 "
 
 echo ">> done. Config on ${HOST}: /etc/credential-gateway/config.yaml"
