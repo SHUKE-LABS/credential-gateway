@@ -2,7 +2,7 @@
 
 _Generated from release tags with `bash scripts/generate-changelog`._
 
-## v0.6.0 … v0.2.0 (2026-07-14)
+## v0.7.0 … v0.2.0 (2026-07-14)
 
 ### Features
 - feat: web admin UI for viewing/editing listener config (#23) (#40)
@@ -10,6 +10,7 @@ _Generated from release tags with `bash scripts/generate-changelog`._
 - feat: validation-gated restarts + honest deploy failure (#42)
 - feat: add -version flag baked via ldflags (#43)
 - feat: add -log-level flag and CG_LOG_LEVEL env (#44)
+- feat: uniform connection-lifecycle logging across the four TCP proxies (#45)
 
 ## v0.1.1 … v0.1.0 (2026-07-08)
 
