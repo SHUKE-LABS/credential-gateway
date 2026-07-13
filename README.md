@@ -72,6 +72,8 @@ credential-gateway -log-level info -log-source # add source file:line to each li
 
 Accepted levels are `debug`, `info`, `warn`, and `error` (case-insensitive). The `-log-level` flag overrides `CG_LOG_LEVEL` when both are set. An invalid value exits `1` with a message naming the accepted values. The optional `-log-source` flag adds the emitting `source` file:line to every log line.
 
+At `debug`, each TCP proxy (mysql, redis, postgres, oracle) traces the connection lifecycle: an accept line with the client `RemoteAddr` and, on disconnect, a close line with the connection duration and bytes transferred each way. Both lines share a connection `id` for correlation. Credential values never appear in these lines.
+
 ## Config
 
 Config is YAML. All five proxy types are optional — include only the services you need. Multiple entries per section are supported.

@@ -45,6 +45,7 @@ func (p *postgresProxy) accept() {
 
 func (p *postgresProxy) handle(client net.Conn) {
 	defer client.Close()
+	cl := acceptConn(p.log, "postgres", client)
 
 	// Read client's first message; may be SSLRequest (80877103) or StartupMessage (196608).
 	startup, err := pgReadStartup(client)
@@ -117,7 +118,7 @@ func (p *postgresProxy) handle(client net.Conn) {
 					return
 				}
 				// Read remaining startup messages until ReadyForQuery.
-				if err := p.forwardStartup(upstream, client); err != nil {
+				if err := p.forwardStartup(upstream, client, cl); err != nil {
 					p.log.Error("postgres proxy: forward startup", "err", err)
 				}
 				return
@@ -180,7 +181,7 @@ func (p *postgresProxy) handle(client net.Conn) {
 
 // forwardStartup reads ParameterStatus / BackendKeyData / ReadyForQuery from upstream
 // and forwards them to the client, then enters the bidirectional pipe.
-func (p *postgresProxy) forwardStartup(upstream, client net.Conn) error {
+func (p *postgresProxy) forwardStartup(upstream, client net.Conn, cl *connLog) error {
 	for {
 		msg, err := pgReadMessage(upstream)
 		if err != nil {
@@ -191,7 +192,8 @@ func (p *postgresProxy) forwardStartup(upstream, client net.Conn) error {
 		}
 		if msg[0] == 'Z' { // ReadyForQuery
 			p.log.Info("postgres proxy: client connected", "upstream", p.cfg.Upstream)
-			pipe(client, upstream)
+			toUpstream, toClient := pipe(client, upstream, client)
+			cl.close(toUpstream, toClient)
 			return nil
 		}
 	}

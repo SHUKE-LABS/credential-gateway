@@ -41,6 +41,7 @@ func (p *mysqlProxy) accept() {
 
 func (p *mysqlProxy) handle(client net.Conn) {
 	defer client.Close()
+	cl := acceptConn(p.log, "mysql", client)
 
 	upstream, err := net.Dial("tcp", p.cfg.Upstream)
 	if err != nil {
@@ -144,7 +145,8 @@ func (p *mysqlProxy) handle(client net.Conn) {
 	p.log.Info("mysql proxy: client connected", "upstream", p.cfg.Upstream)
 
 	// --- Step 7: bidirectional pipe ---
-	pipe(client, upstream)
+	toUpstream, toClient := pipe(client, upstream, client)
+	cl.close(toUpstream, toClient)
 }
 
 func (p *mysqlProxy) Stop(_ context.Context) error {

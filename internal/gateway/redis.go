@@ -9,7 +9,6 @@ import (
 	"log/slog"
 	"net"
 	"strings"
-	"sync"
 
 	"credential-gateway/internal/config"
 )
@@ -42,6 +41,8 @@ func (p *redisProxy) accept() {
 
 func (p *redisProxy) handle(client net.Conn) {
 	defer client.Close()
+	cl := acceptConn(p.log, "redis", client)
+
 	upstream, err := net.Dial("tcp", p.cfg.Upstream)
 	if err != nil {
 		p.log.Error("redis proxy: upstream dial failed", "upstream", p.cfg.Upstream, "err", err)
@@ -89,20 +90,10 @@ func (p *redisProxy) handle(client net.Conn) {
 		clientSrc = io.MultiReader(bytes.NewReader(head), client)
 	}
 
-	// Bidirectional pipe: close both sides when either direction ends so the
-	// other goroutine unblocks immediately.
-	var once sync.Once
-	closeAll := func() {
-		once.Do(func() {
-			client.Close()   //nolint:errcheck
-			upstream.Close() //nolint:errcheck
-		})
-	}
-	var wg sync.WaitGroup
-	wg.Add(2)
-	go func() { defer wg.Done(); defer closeAll(); io.Copy(client, upstream) }()    //nolint:errcheck
-	go func() { defer wg.Done(); defer closeAll(); io.Copy(upstream, clientSrc) }() //nolint:errcheck
-	wg.Wait()
+	// Bidirectional pipe via the shared instrumented helper; clientSrc prepends
+	// any bytes buffered during AUTH interception.
+	toUpstream, toClient := pipe(client, upstream, clientSrc)
+	cl.close(toUpstream, toClient)
 }
 
 // discardClientAuth peeks at br for an AUTH command at connection start.
