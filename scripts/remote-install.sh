@@ -136,11 +136,15 @@ else
 	# Upgrade path: an existing config is assumed valid. `restart` (not
 	# `enable --now`) is required so an already-running service actually picks
 	# up the freshly-installed binary — `--now` would no-op on a live unit and
-	# leave the old binary running. Tolerate a start failure (e.g. an operator
-	# who never filled in the seed) rather than aborting the whole deploy; the
-	# status output below shows the real state.
+	# leave the old binary running.
+	#
+	# A restart failure now fails the deploy: with the ExecStartPre validate gate
+	# in the unit, an unstartable config (broken edit, or a seed never filled in)
+	# is a genuine deploy failure, not something to swallow. Capture the exit code
+	# so the diagnostic status dump still runs under `set -e`, then propagate it.
 	systemctl enable "${BIN}.service" >/dev/null 2>&1 || true
-	systemctl restart "${BIN}.service" || true
+	if systemctl restart "${BIN}.service"; then rc=0; else rc=$?; fi
 	sleep 1
 	systemctl --no-pager --full --lines=0 status "${BIN}.service" || true
+	exit "$rc"
 fi
