@@ -2,6 +2,11 @@
 
 _Generated from release tags with `bash scripts/generate-changelog`._
 
+## v0.7.1 (2026-07-16)
+
+### Docs
+- docs: clarify proxy listeners bind any address; document trust boundary (#46) (#50)
+
 ## v0.7.0 … v0.2.0 (2026-07-14)
 
 ### Features
