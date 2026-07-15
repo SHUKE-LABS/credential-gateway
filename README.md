@@ -1,6 +1,6 @@
 # credential-gateway
 
-**A local credential injection proxy for development.** credential-gateway sits between your app and upstream services, holding all credentials in a single root-owned config file outside every worktree. Your app connects to localhost with no credentials; the gateway injects them before forwarding.
+**A credential injection proxy for development.** credential-gateway sits between your app and upstream services, holding all credentials in a single root-owned config file outside every worktree. Your app connects to the gateway with no credentials; the gateway injects them before forwarding. The examples below listen on `localhost` — the simplest case — but each listener binds whatever `listen` address you configure (see [Network trust boundary](#network-trust-boundary)).
 
 ```
 app / agent
@@ -10,6 +10,8 @@ app / agent
   ├─ PostgreSQL → localhost:5433 (no passwd) → real PostgreSQL    (MD5 / SCRAM-SHA-256 injected)
   └─ Oracle     → localhost:1522 (no passwd) → real Oracle DB     (TNS/TTC wire only — EXPERIMENTAL, does not authenticate to real Oracle)
 ```
+
+`localhost` is the default shown here; `listen` accepts any address — see [Network trust boundary](#network-trust-boundary) for binding beyond loopback.
 
 It solves three problems that `.env` files and secrets managers don't:
 
@@ -213,6 +215,18 @@ Each listener implements `Start() / Stop()`. `Gateway.Start()` launches all of t
 - Config file permissions are validated at startup (`0600` required; group- or world-readable rejected)
 - Credential values are never logged — the HTTP Director explicitly avoids logging injected headers
 - Credentials live only in the protected config file, never in environment variables or worktree files
+
+## Network trust boundary
+
+Each proxy listener binds whatever `listen` address you put in the config — `net.Listen("tcp", listen)`. There is no loopback enforcement: `127.0.0.1:8080` and `100.111.44.50:8080` (a Tailscale IP) both bind fine. Config validation only checks that required fields are present and that no two listeners share an address.
+
+The proxies perform **no inbound authentication**: any client that can reach the port gets credentials injected on its behalf. So **the network you bind to is the trust boundary** — whoever can reach a proxy port can use the upstream credentials.
+
+- **Loopback (`127.0.0.1`)** — the default in every example. Only processes on the same host can connect. Simplest and safest.
+- **Private network (Tailscale IP, VPN, trusted LAN)** — supported and a legitimate deployment. Set `listen` to the interface address (e.g. `listen: "100.111.44.50:8080"`) so other machines on that trusted network can use the gateway. You are accepting that anyone who can reach the port gets credential injection, so bind only to a network you trust (e.g. a private tailnet).
+- **Public internet** — never bind a proxy to a public address without an authenticating layer (reverse proxy, mTLS, firewall) in front. There is no inbound auth to stop an attacker who reaches the port.
+
+The admin UI is the one exception: it is always loopback-only (`127.0.0.1:8099`, hardcoded) regardless of config — see [Admin UI](#admin-ui-editing-config-over-the-web).
 
 ## Testing
 
