@@ -1,6 +1,13 @@
 # credential-gateway example config
 # Install to ~/.config/credential-gateway/config.yaml with mode 0600
 # or /etc/credential-gateway/config.yaml (root-owned, mode 0600)
+#
+# `listen` accepts ANY address, not just 127.0.0.1. Loopback is the default
+# shown below; to serve other machines on a trusted network, bind an interface
+# address instead, e.g. listen: "100.111.44.50:8080" (a Tailscale IP). The
+# proxies do no inbound auth, so the network you bind to is the trust boundary
+# — bind only to a network you trust, never a public address without an auth
+# layer in front. See "Network trust boundary" in the README.
 
 http:
   - name: openai
