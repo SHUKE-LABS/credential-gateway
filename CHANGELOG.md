@@ -2,7 +2,10 @@
 
 _Generated from release tags with `bash scripts/generate-changelog`._
 
-## v0.7.1 (2026-07-16)
+## v0.7.2 … v0.7.1 (2026-07-16)
+
+### Fixes
+- fix: rewrite outbound Host header to upstream in HTTP proxy (#51)
 
 ### Docs
 - docs: clarify proxy listeners bind any address; document trust boundary (#46) (#50)
