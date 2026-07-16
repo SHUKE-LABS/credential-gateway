@@ -168,7 +168,7 @@ On a systemd host, `credential-gateway-admin` is a second, separate service that
 
 It is deliberately narrow, because anything that can write that file can read and write every proxied credential:
 
-- **Separate, unprivileged process.** Runs as a dedicated non-root user `cg-admin` (not the gateway's root), reaching only `config.yaml` via a POSIX ACL. The file stays `0600 root:root`; the gateway is unchanged.
+- **Separate, unprivileged process.** Runs as a dedicated non-root user `cg-admin` (not the gateway's root), reaching only `config.yaml` via a POSIX ACL. The file stays `0600 root:root`; the gateway's permission check is ACL-aware and accepts the `cg-admin` named-user grant while still rejecting group- or world-accessible configs.
 - **Loopback only.** Binds `127.0.0.1:8099` and nothing else — reach it through an SSH tunnel:
 
   ```bash
@@ -212,7 +212,7 @@ Each listener implements `Start() / Stop()`. `Gateway.Start()` launches all of t
 
 **Security notes:**
 
-- Config file permissions are validated at startup (`0600` required; group- or world-readable rejected)
+- Config file permissions are validated at startup (`0600` required; group- or world-readable rejected). The check is ACL-aware: it reads the real POSIX ACL entries rather than the mask reflected into the mode bits, so a `0600` file with a named-user ACL grant (as the admin UI installs for `cg-admin`) is accepted, while any `group::`, named-group, or `other::` access is still rejected
 - Credential values are never logged — the HTTP Director explicitly avoids logging injected headers
 - Credentials live only in the protected config file, never in environment variables or worktree files
 
