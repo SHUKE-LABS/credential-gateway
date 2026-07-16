@@ -57,6 +57,28 @@ func TestHTTPProxy_InjectsConfiguredHeader(t *testing.T) {
 	}
 }
 
+func TestHTTPProxy_RewritesHostToUpstream(t *testing.T) {
+	var gotHost string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotHost = r.Host
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+
+	p := startProxy(t, srv.URL, nil)
+
+	resp, err := http.Get(fmt.Sprintf("http://%s/key", p.addr))
+	if err != nil {
+		t.Fatalf("GET: %v", err)
+	}
+	resp.Body.Close()
+
+	wantHost := strings.TrimPrefix(srv.URL, "http://")
+	if gotHost != wantHost {
+		t.Errorf("upstream got Host %q, want upstream host %q (not the gateway addr %q)", gotHost, wantHost, p.addr)
+	}
+}
+
 func TestHTTPProxy_StripsClientCredentialHeader(t *testing.T) {
 	var gotAuth string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

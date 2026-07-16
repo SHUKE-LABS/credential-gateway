@@ -29,6 +29,11 @@ func (p *httpProxy) Start() error {
 	headers := p.cfg.Headers
 	rp.Director = func(req *http.Request) {
 		origDirector(req)
+		// origDirector points the dial target and TLS SNI at the upstream but
+		// leaves req.Host as the client's value, which net/http sends as the
+		// outbound Host header. Make the Host header agree with the upstream so
+		// Host-routed backends (e.g. Cloudflare-fronted APIs) don't 403.
+		req.Host = upstream.Host
 		for k, v := range headers {
 			req.Header.Del(k)
 			req.Header.Set(k, v)
