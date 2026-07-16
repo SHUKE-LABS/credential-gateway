@@ -205,12 +205,31 @@ func (c *Config) Validate() error {
 	return nil
 }
 
-// checkPermissions rejects configs readable by group or world.
+// checkPermissions rejects configs accessible by group or world.
+//
+// When the file carries a POSIX ACL, its mask is reflected into st_mode's group
+// bits, so the raw mode bits cannot distinguish a group-readable file from a
+// 0600 file with a named-user ACL (as the admin UI's cg-admin grant installs).
+// In that case the real ACL entries are inspected instead: named-user grants
+// are permitted, group-level access (group::, a named group, or other::) is not.
+// With no extended ACL the mode bits are authoritative and the raw check stands.
 func checkPermissions(path string) error {
 	info, err := os.Stat(path)
 	if err != nil {
 		return fmt.Errorf("stat config %s: %w", path, err)
 	}
+
+	present, offending, err := aclGroupClassAccess(path)
+	if err != nil {
+		return fmt.Errorf("read ACL of config %s: %w", path, err)
+	}
+	if present {
+		if offending != "" {
+			return fmt.Errorf("config file %s grants %s access via ACL (only the owner and named users may have access)", path, offending)
+		}
+		return nil
+	}
+
 	mode := info.Mode().Perm()
 	if mode&0o077 != 0 {
 		return fmt.Errorf("config file %s has unsafe permissions %04o (must be 0600 or stricter)", path, mode)

@@ -89,7 +89,8 @@ fi
 # --- admin UI: dedicated non-root user + ACL-scoped file access -------------
 # The admin UI runs as cg-admin (stable UID, not DynamicUser: the ACL grant
 # below needs it) and reaches exactly config.yaml via a POSIX ACL, leaving the
-# file 0600 root:root so the gateway's permission check needs no change.
+# file 0600 root:root. The gateway's permission check is ACL-aware: it accepts
+# this named-user grant and still rejects real group/other access.
 if ! id -u "${ADMIN_USER}" >/dev/null 2>&1; then
 	useradd --system --no-create-home --shell /usr/sbin/nologin "${ADMIN_USER}"
 	echo ">> created system user ${ADMIN_USER}"
