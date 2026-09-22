@@ -28,8 +28,9 @@ your app  ──►  credential-gateway  ──►  upstream service
 ```
 
 The secret lives in **one** file (`~/.config/credential-gateway/config.yaml`,
-mode `0600`) instead of a `.env` in every worktree. Rotate it there once and
-every project picks it up on its next request.
+mode `0600`) instead of a `.env` in every worktree. Rotate it there once, restart
+the gateway (`Ctrl-C`, then start it again), and every project picks up the new
+value — nothing else changes.
 
 ---
 
@@ -105,11 +106,12 @@ curl http://127.0.0.1:8081/ping
 
 ## 4. Write your first config
 
-The gateway searches for a config in this order, first match wins:
+The gateway loads one config file. `-config /path/to/config.yaml` selects that
+file directly; with no `-config`, it searches these locations in order and uses
+the first one that exists:
 
 1. `~/.config/credential-gateway/config.yaml`
 2. `/etc/credential-gateway/config.yaml`
-3. whatever you pass with `-config /path/to/config.yaml`
 
 For the walkthrough, create it in the default location:
 
@@ -200,11 +202,13 @@ That `"Bearer guide-demo-secret"` came from your config, injected by the gateway
 on the way to the upstream. This is the whole idea in one line.
 
 Point your app at the gateway the same way. For an SDK that reads a base URL from
-the environment:
+the environment, replace only the host and keep the SDK's usual path (`/v1` for
+OpenAI) — the gateway forwards the path unchanged and adds the key:
 
 ```bash
-# OpenAI-style client: paths are passed through, the gateway adds the key
-export OPENAI_BASE_URL="http://127.0.0.1:8080"
+# OpenAI-style client: its normal base URL is https://api.openai.com/v1, so
+# point that at the gateway host, /v1 included
+export OPENAI_BASE_URL="http://127.0.0.1:8080/v1"
 ```
 
 If the client *does* send its own `Authorization`, the gateway replaces it with
@@ -318,7 +322,7 @@ Every message below is logged as JSON on stderr. The `err` field holds the text.
 | What you see | What it means | Fix |
 |---|---|---|
 | `no config file found (searched […])` | No config at the default paths. | Create `~/.config/credential-gateway/config.yaml`, or pass `-config /path/to.yaml`. |
-| `config file … has unsafe permissions 0644 (must be 0600 or stricter)` | The config (or its directory) is readable by others. | `chmod 0600 ~/.config/credential-gateway/config.yaml` |
+| `config file … has unsafe permissions 0644 (must be 0600 or stricter)` | The config file is readable by others. | `chmod 0600 ~/.config/credential-gateway/config.yaml` |
 | `parse config: EOF` | The file is empty or all-commented (e.g. the deploy template). | Uncomment and fill in at least one service. |
 | `config defines no listeners` | Service sections are present but empty. | Add at least one listener. |
 | `http[0]: missing required field 'upstream'` | A required key is absent. | Add the field; the `[0]` is the entry's index in that section. |
