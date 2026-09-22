@@ -2,6 +2,15 @@
 
 _Generated from release tags with `bash scripts/generate-changelog`._
 
+## v0.7.4 (2026-09-22)
+
+### Docs
+- docs: add comprehensive New User's Guide (#57)
+- docs: correct New User's Guide config precedence, rotation and OpenAI base URL (#57)
+
+### Other Changes
+- Merge pull request #58 from SHUKE-LABS/orbi/SHUKE-LABS-credential-gateway-issue-57
+
 ## v0.7.3 … v0.7.1 (2026-07-16)
 
 ### Fixes
