@@ -1,5 +1,9 @@
 # credential-gateway
 
+> **New here?** Follow the [New User's Guide](docs/new-users-guide.md) to get from
+> zero to a working credential-injecting proxy in about five minutes. The rest of
+> this README is the full reference.
+
 **A credential injection proxy for development.** credential-gateway sits between your app and upstream services, holding all credentials in a single root-owned config file outside every worktree. Your app connects to the gateway with no credentials; the gateway injects them before forwarding. The examples below listen on `localhost` — the simplest case — but each listener binds whatever `listen` address you configure (see [Network trust boundary](#network-trust-boundary)).
 
 ```
